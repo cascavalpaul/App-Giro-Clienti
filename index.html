@@ -57,6 +57,18 @@ button:disabled{opacity:.45;cursor:default}
 #drop{border:1.5px dashed var(--bd2);border-radius:12px;padding:16px;text-align:center;color:var(--mu);cursor:pointer}
 #drop b{color:var(--tx)}
 #drop.over{border-color:var(--ac);background:rgba(177,77,255,.1)}
+#cfWrap{position:fixed;inset:0;z-index:3000;background:rgba(6,3,14,.72);backdrop-filter:blur(4px);display:flex;align-items:flex-end;justify-content:center;padding:16px}
+#cfWrap[hidden]{display:none}
+#cf{width:100%;max-width:460px;max-height:100%;overflow:auto;margin-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 0 40px rgba(255,63,216,.35)}
+@media (min-width:900px){#cfWrap{align-items:center}}
+.chk{display:flex;align-items:center;gap:8px;color:var(--tx);margin:14px 0 4px}
+#cfErr{color:var(--wa);font-size:13px;margin:6px 0}#cfErr:empty{display:none}
+#cfPin{margin-top:8px}
+.cfBtns{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:8px;margin-top:12px}
+.cfBtns .pri{padding:10px}
+.plus{font-size:22px;line-height:1;padding:0 14px;align-self:stretch;color:#fff;border:0;background:linear-gradient(135deg,var(--ac),var(--ac2));box-shadow:0 0 12px rgba(255,63,216,.45)}
+#res .ed{flex:none;padding:5px 9px;font-size:14px;border-radius:8px}
+#res .nf button{margin-top:8px;display:block}
 .help{font-size:12.5px;color:var(--mu);margin:10px 0}.help b{color:#d9ccff;font-weight:600}
 .wide{width:100%}
 #mapping .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
@@ -141,6 +153,20 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
 </head>
 <body data-tab="giro">
 <div id="hint"></div>
+<div id="cfWrap" hidden>
+  <form id="cf" class="card" autocomplete="off">
+    <h2><span class="dot"></span><span id="cfTitle">Nuovo cliente</span></h2>
+    <label for="f_nome">Nome *</label><input type="text" id="f_nome">
+    <div class="row"><div style="flex:3"><label for="f_via">Indirizzo *</label><input type="text" id="f_via" placeholder="Via Roma"></div><div><label for="f_civ">Civico</label><input type="text" id="f_civ"></div></div>
+    <div class="row"><div><label for="f_cap">CAP</label><input type="text" id="f_cap" inputmode="numeric" maxlength="5"></div><div style="flex:2"><label for="f_citta">Comune *</label><input type="text" id="f_citta"></div><div><label for="f_prov">Prov.</label><input type="text" id="f_prov" maxlength="2"></div></div>
+    <label for="f_tel">Telefono</label><input type="text" id="f_tel" inputmode="tel">
+    <label for="f_note">Note</label><input type="text" id="f_note">
+    <label class="chk"><input type="checkbox" id="f_on"> Metti nel giro di oggi</label>
+    <div id="cfErr"></div>
+    <button type="button" id="cfPin" class="wide">📍 Posiziona sulla mappa</button>
+    <div class="cfBtns"><button type="button" id="cfDel" class="danger">Elimina</button><button type="button" id="cfCancel">Annulla</button><button type="submit" class="pri">Salva</button></div>
+  </form>
+</div>
 <div id="app">
 <aside>
   <header class="top">
@@ -151,7 +177,7 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
     <section data-p="giro">
       <div class="card search">
         <h2><span class="dot"></span>Aggiungi clienti</h2>
-        <input type="search" id="q" placeholder="Cerca nome, via, comune…" autocomplete="off" enterkeyhint="done">
+        <div class="row"><input type="search" id="q" placeholder="Cerca nome, via, comune…" autocomplete="off" enterkeyhint="done"><button class="newc plus" title="Nuovo cliente" aria-label="Nuovo cliente">＋</button></div>
         <div id="res"></div>
       </div>
       <div class="card hl">
@@ -179,7 +205,7 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
           <div class="row" style="margin-top:12px;align-items:center"><label style="margin:0;color:var(--tx)"><input type="checkbox" id="replace" checked> sostituisci la rubrica</label><button class="pri" id="doImport">Importa</button></div>
         </div>
         <div id="bookInfo"></div>
-        <div class="tools" style="margin-top:10px"><button id="geo">📍 Localizza indirizzi</button><button id="add">＋ Tappa sulla mappa</button></div>
+        <div class="tools" style="margin-top:10px"><button class="newc">＋ Nuovo cliente</button><button id="exp">⬇ Salva rubrica in Excel</button><button id="geo">📍 Localizza indirizzi</button><button id="add">＋ Tappa sulla mappa</button></div>
       </div>
       <div class="card">
         <h2><span class="dot"></span>Partenza e orari</h2>
@@ -308,15 +334,54 @@ $('#doImport').onclick=()=>{
   const c=SRC[+$('#recTag').value],m={};document.querySelectorAll('#fields select').forEach(s=>m[s.dataset.f]=s.value);
   if(!m.nome&&!m.via){$('#bookInfo').innerHTML='<span style="color:var(--wa)">Scegli almeno la colonna del nome o dell\'indirizzo.</span>';return}
   const v=(o,k)=>m[k]?(o[m[k]]||''):'';const num=x=>{const n=parseFloat(String(x).replace(',','.'));return isFinite(n)?n:null};
-  const ns=c.rows.map(o=>{const via=[v(o,'via'),v(o,'civ')].filter(Boolean).join(' ');
-    let cap=v(o,'cap');if(/^\d{1,4}$/.test(cap))cap=cap.padStart(5,'0');
-    const addr=[via,[cap,v(o,'citta')].filter(Boolean).join(' '),v(o,'prov')].filter(Boolean).join(', ');
-    const alt=[cap,v(o,'citta'),v(o,'prov')].filter(Boolean).join(', ');
-    const lat=num(v(o,'lat')),lon=num(v(o,'lon')),has=lat!=null&&lon!=null;
-    return{id:uid(),nome:v(o,'nome')||via||'(senza nome)',addr,alt,note:[v(o,'tel'),v(o,'note')].filter(Boolean).join(' · '),txt:Object.values(o).join(' '),lat:has?lat:null,lon:has?lon:null,on:false,st:has?'ok':null}})
+  const ns=c.rows.map(o=>{const f={};FK.forEach(k=>f[k]=v(o,k));const s=mkClient(f);s.txt=Object.values(o).join(' ');
+    const lat=num(v(o,'lat')),lon=num(v(o,'lon'));if(lat!=null&&lon!=null){s.lat=lat;s.lon=lon;s.st='ok'}return s})
     .filter(s=>s.nome!=='(senza nome)'||s.addr);
   S.stops=$('#replace').checked?ns:S.stops.concat(ns);S.route=null;$('#mapping').hidden=true;
   changed(true);if(S.stops.some(s=>s.lat==null))geocodeAll();
+};
+/* ---------- cliente: crea, modifica, elimina ---------- */
+const FK=['nome','via','civ','cap','citta','prov','tel','note'];
+function mkClient(f,base){
+  let cap=f.cap||'';if(/^\d{1,4}$/.test(cap))cap=cap.padStart(5,'0');f.cap=cap;
+  const via=[f.via,f.civ].filter(Boolean).join(' ');
+  return Object.assign(base||{id:uid(),on:false,lat:null,lon:null,st:null},{f,nome:f.nome||via||'(senza nome)',
+    addr:[via,[cap,f.citta].filter(Boolean).join(' '),f.prov].filter(Boolean).join(', '),
+    alt:[cap,f.citta,f.prov].filter(Boolean).join(', '),note:[f.tel,f.note].filter(Boolean).join(' · ')});
+}
+let editing=null;
+function openForm(s,preset){
+  editing=s||null;const f=s?(s.f||{nome:s.nome,via:s.addr,note:s.note}):{nome:preset||''};
+  FK.forEach(k=>$('#f_'+k).value=f[k]||'');
+  $('#f_on').checked=s?s.on:true;$('#cfTitle').textContent=s?'Modifica cliente':'Nuovo cliente';
+  $('#cfDel').hidden=$('#cfPin').hidden=!s;$('#cfDel').dataset.sure='';$('#cfDel').textContent='Elimina';$('#cfErr').textContent='';
+  $('#cfWrap').hidden=false;setTimeout(()=>$('#f_nome').focus(),60);
+}
+const closeForm=()=>{$('#cfWrap').hidden=true;editing=null};
+$('#cfCancel').onclick=closeForm;
+$('#cfWrap').onclick=e=>{if(e.target.id==='cfWrap')closeForm()};
+$('#cf').onsubmit=e=>{
+  e.preventDefault();const f={};FK.forEach(k=>f[k]=$('#f_'+k).value.trim());f.prov=f.prov.toUpperCase();
+  if(!f.nome){$('#cfErr').textContent='Scrivi il nome del cliente.';return}
+  if(!f.via&&!f.citta){$('#cfErr').textContent='Scrivi almeno indirizzo e comune, servono per trovarlo sulla mappa.';return}
+  const old=editing,oldAddr=old&&old.addr,c=mkClient(f,old||undefined);c.txt=Object.values(f).join(' ');
+  if(!old)S.stops.push(c);
+  if(!old||c.addr!==oldAddr){c.lat=null;c.lon=null;c.st=null}
+  closeForm();addToGiro(c,$('#f_on').checked);
+  msg(`✓ ${c.nome} ${old?'aggiornato':'aggiunto alla rubrica'}${c.on?' e al giro':''}`);
+  if(c.lat==null)geocodeAll().then(()=>{if(c.st==='ko')msg(`Indirizzo di ${c.nome} non trovato: aprilo con ✎ e usa "Posiziona sulla mappa".`);else if(c.st==='approx')msg(`${c.nome}: trovato solo il comune. Trascina il segnaposto arancione nel punto giusto.`)});
+};
+$('#cfDel').onclick=()=>{const b=$('#cfDel');if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Tocca ancora per eliminare';return}
+  const s=editing;S.stops.splice(S.stops.indexOf(s),1);closeForm();msg(`${s.nome} eliminato dalla rubrica`);changed()};
+$('#cfPin').onclick=()=>{const s=editing;closeForm();setMode({type:'place',id:s.id},'Tocca sulla mappa dove si trova: '+s.nome)};
+document.querySelectorAll('.newc').forEach(b=>b.onclick=()=>openForm(null));
+$('#exp').onclick=async()=>{
+  if(!S.stops.length){$('#bookInfo').textContent='La rubrica è vuota: non c\'è niente da salvare.';return}
+  try{await needXLSX()}catch(e){$('#bookInfo').textContent='Non riesco a creare il file: controlla la connessione.';return}
+  const rows=[['Nome','Indirizzo','Civico','CAP','Comune','Provincia','Telefono','Note','Lat','Lon'],
+    ...S.stops.map(s=>{const f=s.f||{via:s.addr,note:s.note};return[s.nome,f.via||'',f.civ||'',f.cap||'',f.citta||'',f.prov||'',f.tel||'',f.note||'',s.lat??'',s.lon??'']})];
+  const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=[28,26,8,8,18,10,16,30,11,11].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Clienti');XLSX.writeFile(wb,'rubrica-clienti-'+new Date().toISOString().slice(0,10)+'.xlsx');
 };
 $('#tpl').onclick=async()=>{
   try{await needXLSX()}catch(e){$('#bookInfo').textContent='Non riesco a creare il modello: controlla la connessione.';return}
@@ -366,8 +431,10 @@ function search(){
   if(!q.length){hits=[];$('#res').innerHTML='';return}
   hits=S.stops.filter(s=>{const t=norm(s.nome+' '+s.addr+' '+s.note+' '+(s.txt||''));return q.every(w=>t.includes(w))}).slice(0,10);
   sel=Math.min(sel,Math.max(0,hits.length-1));
-  $('#res').innerHTML=hits.length?hits.map((s,i)=>`<div data-i="${i}" class="${i===sel?'sel':''}"><span class="in ${s.on?'yes':''}">${s.on?'✓':'+'}</span><div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr)}${s.note?' · '+esc(s.note):''}</small></div></div>`).join('')
-    :`<div class="nf">${S.stops.length?'Nessun cliente trovato.':'Rubrica vuota: carica la lista clienti da Imposta.'}</div>`;
+  $('#res').innerHTML=hits.length?hits.map((s,i)=>`<div data-i="${i}" class="${i===sel?'sel':''}"><span class="in ${s.on?'yes':''}">${s.on?'✓':'+'}</span><div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr)}${s.note?' · '+esc(s.note):''}</small></div><button class="ed" data-e="${i}" title="modifica cliente">✎</button></div>`).join('')
+    :`<div class="nf">${S.stops.length?'Nessun cliente trovato.':'Rubrica vuota.'}<button id="mkNew">＋ Crea "${esc($('#q').value.trim())}" come nuovo cliente</button></div>`;
+  $('#res').querySelectorAll('[data-e]').forEach(b=>b.onclick=e=>{e.stopPropagation();openForm(hits[+b.dataset.e])});
+  const mk=$('#mkNew');if(mk)mk.onclick=()=>{const t=$('#q').value.trim();$('#q').value='';search();openForm(null,t)};
   $('#res').querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>{const s=hits[+d.dataset.i];addToGiro(s);msg(s.on?`✓ ${s.nome} aggiunto al giro`:`${s.nome} tolto dal giro`);$('#q').value='';sel=0;search()});
 }
 $('#q').oninput=()=>{sel=0;search()};
@@ -375,6 +442,7 @@ $('#q').onkeydown=e=>{
   if(e.key==='ArrowDown'){sel=Math.min(sel+1,hits.length-1);search();e.preventDefault()}
   else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);search();e.preventDefault()}
   else if(e.key==='Enter'&&hits[sel]){const s=hits[sel];addToGiro(s);msg(s.on?`✓ ${s.nome} aggiunto al giro`:`${s.nome} tolto dal giro`);$('#q').value='';sel=0;search()}
+  else if(e.key==='Enter'&&!hits.length&&$('#q').value.trim()){const t=$('#q').value.trim();$('#q').value='';search();openForm(null,t)}
   else if(e.key==='Escape'){$('#q').value='';search()}
 };
 $('#newday').onclick=()=>{if(confirm('Nuovo giro: tolgo tutti i clienti dal giro di oggi (la rubrica resta).')){S.stops.forEach(s=>s.on=false);S.route=null;msg('');changed();tab('giro');$('#q').focus()}};
@@ -445,8 +513,9 @@ function render(fit){
     li.innerHTML=`<span class="num">${inc?++n:'–'}</span>
       <div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr||'—')}${s.note?' · '+esc(s.note):''}</small>${e?`<small class="eta">⏱ ${clock(S.start,e.t)}${e.d?' · '+(e.d/1000).toFixed(1)+' km':''}</small>`:''}</div>
       <span class="st ${s.st||''}" title="${st[1]}">${st[0]}</span>
-      <div class="btns"><button class="mini" data-a="up" aria-label="sposta su">↑</button><button class="mini" data-a="dn" aria-label="sposta giù">↓</button>${s.lat==null?'<button class="mini" data-a="pin" title="piazza sulla mappa">📍</button>':''}<button class="mini" data-a="del" title="togli dal giro">✕</button></div>`;
+      <div class="btns"><button class="mini" data-a="up" aria-label="sposta su">↑</button><button class="mini" data-a="dn" aria-label="sposta giù">↓</button>${s.lat==null?'<button class="mini" data-a="pin" title="piazza sulla mappa">📍</button>':''}<button class="mini" data-a="edit" title="modifica cliente">✎</button><button class="mini" data-a="del" title="togli dal giro">✕</button></div>`;
     li.querySelectorAll('button').forEach(b=>b.onclick=()=>{const a=b.dataset.a,g=G.slice();
+      if(a==='edit')return openForm(s);
       if(a==='pin')return setMode({type:'place',id:s.id},'Tocca sulla mappa dove si trova: '+s.nome);
       if(a==='del'){s.on=false;return changed()}
       if(a==='up'&&idx>0)[g[idx-1],g[idx]]=[g[idx],g[idx-1]];
