@@ -275,7 +275,14 @@ const save=()=>{try{localStorage.setItem('giro',JSON.stringify(S))}catch(e){};sc
 
 /* ---------- account e salvataggio online (Firebase) ---------- */
 // Configurazione del progetto Firebase: null = app solo locale, senza account.
-window.FIREBASE_CONFIG=null;
+window.FIREBASE_CONFIG={
+  apiKey:"AIzaSyBrYB7uLlw1_7JUzgMhPZ_JzJ105fkBYg8",
+  authDomain:"giro-clienti-56009.firebaseapp.com",
+  projectId:"giro-clienti-56009",
+  storageBucket:"giro-clienti-56009.firebasestorage.app",
+  messagingSenderId:"360742737972",
+  appId:"1:360742737972:web:41474baa945e844dd19261"
+};
 const CLOUD={user:null,ready:false,synced:{},docs:new Map(),settings:null,gotDocs:false,dirty:0,t:null,need:false,err:''};
 const localMode=()=>{try{return localStorage.getItem('giro-local')==='1'}catch(e){return false}};
 function docOf(s){return{nome:s.nome||'',addr:s.addr||'',alt:s.alt||'',note:s.note||'',txt:s.txt||'',
