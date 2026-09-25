@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Giro clienti</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--tx:#1b1f24;--mu:#667085;--bd:#e3e6ea;--ac:#1f6feb;--ok:#1a7f37;--wa:#bf8700;--ko:#cf222e;--hi:#eef4ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#161b22;--tx:#e6edf3;--mu:#8b949e;--bd:#30363d;--ac:#4493f8;--ok:#3fb950;--wa:#d29922;--ko:#f85149;--hi:#1c2a3f}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,Segoe UI,sans-serif}
+#app{display:flex;height:100%}
+aside{width:400px;min-width:320px;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--bd)}
+#map{flex:1}
+.pad{padding:10px 14px;border-bottom:1px solid var(--bd)}
+h1{font-size:17px;margin:0 0 6px}
+label{display:block;font-size:12px;color:var(--mu);margin:6px 0 2px}
+input[type=text],input[type=time],input[type=number],select{width:100%;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--tx);font:inherit}
+.row{display:flex;gap:6px;align-items:end}.row>*{flex:1}
+button{padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--tx);font:inherit;cursor:pointer;white-space:nowrap}
+button.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+.bar{display:flex;flex-wrap:wrap;gap:6px}
+#drop{border:2px dashed var(--bd);border-radius:8px;padding:10px;text-align:center;color:var(--mu);cursor:pointer}
+#drop.over{border-color:var(--ac);background:var(--hi)}
+#mapping .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}
+#stats{font-size:13px;color:var(--mu)}#stats b{color:var(--tx)}
+#msg{font-size:13px;color:var(--wa);min-height:0}
+#list{list-style:none;margin:0;padding:0;overflow:auto;flex:1}
+#list li{display:flex;gap:8px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--bd);cursor:grab}
+#list li.off{opacity:.45}
+#list li.drag{background:var(--hi)}
+.num{width:24px;height:24px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.off .num{background:var(--mu)}
+.info{flex:1;min-width:0}.info b,.info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.info small{color:var(--mu)}.eta{color:var(--ac)!important}
+.st{font-size:11px}.st.ok{color:var(--ok)}.st.approx{color:var(--wa)}.st.ko{color:var(--ko)}.st.man{color:var(--ac)}
+.mini{padding:2px 6px;font-size:12px}
+input[type=search]{width:100%;padding:9px 10px;border:2px solid var(--ac);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit;font-size:15px}
+#res{margin-top:4px;max-height:280px;overflow:auto}
+#res div{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer}
+#res div:hover,#res div.sel{background:var(--hi)}
+#res .in{color:var(--ok);font-weight:700;width:18px;text-align:center}
+#res .nf{color:var(--mu);cursor:default}
+#links a{display:block;color:var(--ac);font-size:13px}
+#hint{position:absolute;z-index:1000;top:10px;left:50%;transform:translateX(-50%);background:var(--ac);color:#fff;padding:6px 12px;border-radius:6px;display:none}
+.pin{background:var(--ac);color:#fff;border:2px solid #fff;border-radius:50%;width:26px!important;height:26px!important;display:grid;place-items:center;font:600 12px system-ui;box-shadow:0 1px 4px #0006}
+.pin.dep{background:#111;border-radius:6px}.pin.ap{background:var(--wa)}
+@media (max-width:760px){#app{flex-direction:column-reverse}aside{width:100%;min-width:0;height:55%}#map{min-height:45%}}
+@media print{#map,.noprint,#hint{display:none!important}aside{width:100%;border:0}#list{overflow:visible}#list li{cursor:default}}
+</style>
+</head>
+<body>
+<div id="hint"></div>
+<div id="app">
+<aside>
+  <div class="pad noprint">
+    <h1>Giro clienti</h1>
+    <div id="drop">Trascina qui l'XML o <u>clicca per sceglierlo</u><input type="file" id="file" accept=".xml,text/xml" hidden></div>
+  </div>
+  <div class="pad noprint">
+    <input type="search" id="q" placeholder="🔍 Cerca cliente e premi Invio per aggiungerlo" autocomplete="off">
+    <div id="res"></div>
+  </div>
+  <div class="pad noprint" id="mapping" hidden>
+    <label>Elemento cliente</label><select id="recTag"></select>
+    <div class="grid" id="fields"></div>
+    <div class="row" style="margin-top:8px"><label style="margin:0"><input type="checkbox" id="replace" checked> sostituisci il giro</label><button class="pri" id="doImport">Importa</button></div>
+  </div>
+  <div class="pad noprint">
+    <label>Partenza (officina / magazzino)</label>
+    <div class="row"><input type="text" id="depot" placeholder="Via, città"><button id="setDepot" style="flex:0">Imposta</button><button id="pickDepot" style="flex:0" title="Scegli sulla mappa">📍</button></div>
+    <div class="row">
+      <div><label>Ora partenza</label><input type="time" id="start"></div>
+      <div><label>Min. per cliente</label><input type="number" id="svc" min="0" step="5"></div>
+      <div><label>&nbsp;</label><label style="margin:0;color:var(--tx)"><input type="checkbox" id="round"> ritorno</label></div>
+    </div>
+  </div>
+  <div class="pad noprint bar">
+    <button id="geo">Localizza indirizzi</button>
+    <button class="pri" id="opt">Ottimizza giro</button>
+    <button id="add">＋ Tappa</button>
+    <button id="csv">CSV</button>
+    <button id="print">Stampa</button>
+    <button id="newday">Nuovo giro</button>
+    <button id="clear">Svuota rubrica</button>
+  </div>
+  <div class="pad"><div id="stats">Nessun cliente.</div><div id="msg"></div><div id="links" class="noprint"></div></div>
+  <ol id="list"></ol>
+</aside>
+<div id="map"></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const OSRM='https://router.project-osrm.org';
+let S={stops:[],depot:null,round:true,start:'08:30',svc:20,route:null};
+try{const s=JSON.parse(localStorage.getItem('giro'));if(s)Object.assign(S,s)}catch(e){}
+const save=()=>{try{localStorage.setItem('giro',JSON.stringify(S))}catch(e){}};
+const msg=t=>$('#msg').textContent=t||'';
+
+/* ---------- mappa ---------- */
+const map=L.map('map').setView([42.5,12.5],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+const layer=L.layerGroup().addTo(map);let line=null,mode=null;
+function setMode(m,t){mode=m;$('#hint').style.display=m?'block':'none';$('#hint').textContent=t||'';}
+map.on('click',async e=>{
+  if(!mode)return;const {lat,lng}=e.latlng,m=mode;setMode(null);
+  if(m.type==='depot'){S.depot={nome:'Partenza',addr:$('#depot').value||'Punto sulla mappa',lat,lon:lng};}
+  if(m.type==='add'){const nome=prompt('Nome della tappa?');if(!nome)return;S.stops.push({id:uid(),nome,addr:'',lat,lon:lng,on:true,st:'man'});}
+  if(m.type==='place'){const s=S.stops.find(x=>x.id===m.id);if(s){s.lat=lat;s.lon=lng;s.st='man';cacheSet(s.addr,{lat,lon:lng});}}
+  changed();
+});
+const uid=()=>Math.random().toString(36).slice(2,9);
+
+/* ---------- XML ---------- */
+let XML=null;
+function flatten(el){
+  const o={};for(const a of el.attributes)o['@'+a.name]=a.value;
+  (function walk(n,p){for(const c of n.children){const k=p?p+'/'+c.nodeName:c.nodeName;
+    for(const a of c.attributes)o[k+'@'+a.name]=a.value;
+    if(c.children.length)walk(c,k);else if(c.textContent.trim())o[k]=c.textContent.trim();}})(el,'');
+  return o;
+}
+function importText(text){
+  const doc=new DOMParser().parseFromString(text,'application/xml');
+  if(doc.querySelector('parsererror')){msg('XML non valido.');return}
+  const g={};doc.querySelectorAll('*').forEach(e=>{if(e.children.length||e.attributes.length)(g[e.nodeName]=g[e.nodeName]||[]).push(e)});
+  const c=Object.entries(g).map(([t,els])=>{const keys=new Set();els.slice(0,5).forEach(e=>Object.keys(flatten(e)).forEach(k=>keys.add(k)));return{t,els,keys:[...keys],score:els.length*keys.size}})
+    .filter(x=>x.keys.length>=2).sort((a,b)=>b.score-a.score);
+  if(!c.length){msg('Nessun elenco di clienti riconosciuto nell\'XML.');return}
+  XML=c;$('#recTag').innerHTML=c.map((x,i)=>`<option value="${i}">${esc(x.t)} (${x.els.length})</option>`).join('');
+  showFields();$('#mapping').hidden=false;msg('');
+}
+const F=[['nome','Nome',/ragione|denomin|nome|name|cliente|descr/i],['via','Via / indirizzo',/indiriz|address|^via$|street|strada/i],['civ','Civico',/civico|numero|^nr|number/i],
+ ['cap','CAP',/^cap$|zip|postal|postcode/i],['citta','Città',/citt|city|comune|local|town/i],['prov','Provincia',/prov|county/i],
+ ['lat','Latitudine',/^lat|latitud/i],['lon','Longitudine',/^lon|^lng|longitud/i],['note','Note / telefono',/tel|phone|cell|note/i]];
+function showFields(){
+  const c=XML[+$('#recTag').value],used=new Set();
+  $('#fields').innerHTML=F.map(([k,lab,re])=>{const g=c.keys.find(x=>!used.has(x)&&re.test(x.split(/[\/@]/).pop()));if(g)used.add(g);
+    return `<div><label>${lab}</label><select data-f="${k}"><option value="">—</option>${c.keys.map(x=>`<option${x===g?' selected':''}>${esc(x)}</option>`).join('')}</select></div>`}).join('');
+}
+$('#recTag').onchange=showFields;
+$('#doImport').onclick=()=>{
+  const c=XML[+$('#recTag').value],m={};document.querySelectorAll('#fields select').forEach(s=>m[s.dataset.f]=s.value);
+  const v=(o,k)=>m[k]?(o[m[k]]||''):'';const num=x=>{const n=parseFloat(String(x).replace(',','.'));return isFinite(n)?n:null};
+  const ns=c.els.map(el=>{const o=flatten(el);const via=[v(o,'via'),v(o,'civ')].filter(Boolean).join(' ');
+    const addr=[via,[v(o,'cap'),v(o,'citta')].filter(Boolean).join(' '),v(o,'prov')].filter(Boolean).join(', ');
+    const alt=[v(o,'cap'),v(o,'citta'),v(o,'prov')].filter(Boolean).join(', ');
+    const lat=num(v(o,'lat')),lon=num(v(o,'lon'));
+    return{id:uid(),nome:v(o,'nome')||via||'(senza nome)',addr,alt,note:v(o,'note'),txt:Object.values(o).join(' '),lat:lat!=null&&lon!=null?lat:null,lon:lat!=null&&lon!=null?lon:null,on:false,st:lat!=null&&lon!=null?'ok':null}});
+  S.stops=$('#replace').checked?ns:S.stops.concat(ns);S.route=null;$('#mapping').hidden=true;
+  msg(`Rubrica: ${S.stops.length} clienti. Cerca e premi Invio per metterli nel giro.`);
+  changed(true);$('#q').focus();if(S.stops.some(s=>s.lat==null))geocodeAll();
+};
+const drop=$('#drop');
+drop.onclick=()=>$('#file').click();
+$('#file').onchange=e=>{const f=e.target.files[0];if(f)f.text().then(importText);e.target.value=''};
+['dragover','dragenter'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)f.text().then(importText)});
+
+/* ---------- geocoding (Nominatim, 1 richiesta/s, con cache) ---------- */
+const cacheGet=q=>{try{return JSON.parse(localStorage.getItem('geo:'+q.toLowerCase()))}catch(e){return null}};
+const cacheSet=(q,v)=>{if(q)try{localStorage.setItem('geo:'+q.toLowerCase(),JSON.stringify(v))}catch(e){}};
+let lastGeo=0;
+async function geo1(q){
+  if(!q)return null;const c=cacheGet(q);if(c)return c;
+  const w=1100-(Date.now()-lastGeo);if(w>0)await new Promise(r=>setTimeout(r,w));lastGeo=Date.now();
+  const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=it&q='+encodeURIComponent(q));
+  const j=await r.json();if(!j.length)return null;const v={lat:+j[0].lat,lon:+j[0].lon};cacheSet(q,v);return v;
+}
+let geoBusy=false;
+async function geocodeAll(){
+  if(geoBusy)return;geoBusy=true;$('#geo').disabled=true;
+  const todo=S.stops.filter(s=>s.lat==null&&(s.addr||s.alt));let i=0;
+  try{for(const s of todo){msg(`Localizzo ${++i}/${todo.length}: ${s.nome}`);
+    let r=await geo1(s.addr),st='ok';if(!r&&s.alt&&s.alt!==s.addr){r=await geo1(s.alt);st='approx'}
+    if(r){s.lat=r.lat;s.lon=r.lon;s.st=st}else s.st='ko';render();}
+    const ko=S.stops.filter(s=>s.st==='ko').length,ap=S.stops.filter(s=>s.st==='approx').length;
+    msg([ko&&`${ko} non trovati: usa 📍 per piazzarli.`,ap&&`${ap} solo sul comune (arancioni): trascinali nel punto giusto.`].filter(Boolean).join(' '));
+  }catch(e){msg('Servizio indirizzi non raggiungibile: riprova tra poco.')}
+  geoBusy=false;$('#geo').disabled=false;changed(true);
+}
+$('#geo').onclick=geocodeAll;
+
+/* ---------- ricerca in rubrica ---------- */
+const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+let hits=[],sel=0;
+function addToGiro(s,on=!s.on){s.on=on;if(on){S.stops.splice(S.stops.indexOf(s),1);const k=S.stops.filter(x=>x.on).length;S.stops.splice(k,0,s)}changed()}
+function search(){
+  const q=norm($('#q').value).split(/\s+/).filter(Boolean);
+  if(!q.length){hits=[];$('#res').innerHTML='';return}
+  hits=S.stops.filter(s=>{const t=norm(s.nome+' '+s.addr+' '+s.note+' '+(s.txt||''));return q.every(w=>t.includes(w))}).slice(0,10);
+  sel=Math.min(sel,Math.max(0,hits.length-1));
+  $('#res').innerHTML=hits.length?hits.map((s,i)=>`<div data-i="${i}" class="${i===sel?'sel':''}"><span class="in">${s.on?'✓':'+'}</span><div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr)}${s.note?' · '+esc(s.note):''}</small></div></div>`).join('')
+    :'<div class="nf">Nessun cliente trovato.</div>';
+  $('#res').querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>{addToGiro(hits[+d.dataset.i]);$('#q').select();search()});
+}
+$('#q').oninput=()=>{sel=0;search()};
+$('#q').onkeydown=e=>{
+  if(e.key==='ArrowDown'){sel=Math.min(sel+1,hits.length-1);search();e.preventDefault()}
+  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);search();e.preventDefault()}
+  else if(e.key==='Enter'&&hits[sel]){const s=hits[sel];addToGiro(s);msg(s.on?`✓ ${s.nome} aggiunto al giro`:`${s.nome} tolto dal giro`);$('#q').value='';sel=0;search()}
+  else if(e.key==='Escape'){$('#q').value='';search()}
+};
+$('#newday').onclick=()=>{if(confirm('Nuovo giro: tolgo tutti i clienti dal giro di oggi (la rubrica resta).')){S.stops.forEach(s=>s.on=false);S.route=null;changed();$('#q').focus()}};
+$('#setDepot').onclick=async()=>{const q=$('#depot').value.trim();if(!q)return;const r=await geo1(q).catch(()=>null);
+  if(!r){msg('Partenza non trovata: usa 📍 e clicca sulla mappa.');return}S.depot={nome:'Partenza',addr:q,...r};msg('');changed(true)};
+$('#pickDepot').onclick=()=>setMode({type:'depot'},'Clicca sulla mappa il punto di partenza');
+$('#add').onclick=()=>setMode({type:'add'},'Clicca sulla mappa dove aggiungere la tappa');
+
+/* ---------- percorso ---------- */
+function seq(){const on=S.stops.filter(s=>s.on&&s.lat!=null),pts=[];if(S.depot)pts.push(S.depot);pts.push(...on);if(S.round&&pts.length>1)pts.push(pts[0]);return{on,pts}}
+const key=()=>seq().pts.map(p=>p.lat.toFixed(5)+','+p.lon.toFixed(5)).join(';');
+const cs=ns=>ns.map(n=>(+n.lon).toFixed(6)+','+(+n.lat).toFixed(6)).join(';');
+function hav(a,b){const R=6371,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lon-a.lon)*r;const h=Math.sin(dl/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+async function route(){
+  const{pts}=seq();if(pts.length<2){S.route=null;return}
+  const legs=[],geo=[];let approx=false;
+  try{for(let i=0;i<pts.length-1;i+=24){const part=pts.slice(i,i+25);
+      const j=await(await fetch(`${OSRM}/route/v1/driving/${cs(part)}?overview=full&geometries=geojson`)).json();
+      if(j.code!=='Ok')throw Error(j.code);
+      j.routes[0].legs.forEach(l=>legs.push({d:l.distance,t:l.duration}));geo.push(...j.routes[0].geometry.coordinates.map(([x,y])=>[y,x]));}}
+  catch(e){approx=true;legs.length=0;geo.length=0;
+    for(let i=0;i<pts.length-1;i++){const d=hav(pts[i],pts[i+1])*1300;legs.push({d,t:d/1000/45*3600})}pts.forEach(p=>geo.push([p.lat,p.lon]));}
+  S.route={key:key(),legs,geo,approx};
+}
+function tsp(D,round){
+  const n=D.length,len=p=>{let s=0;for(let i=0;i<p.length-1;i++)s+=D[p[i]][p[i+1]];return round?s+D[p[p.length-1]][p[0]]:s};
+  let t=[0];const used=new Set([0]);
+  while(t.length<n){const a=t[t.length-1];let b=-1,bv=Infinity;for(let j=0;j<n;j++)if(!used.has(j)&&D[a][j]<bv){bv=D[a][j];b=j}t.push(b);used.add(b)}
+  let best=len(t),imp=true;
+  while(imp){imp=false;
+    for(let i=1;i<n-1;i++)for(let k=i+1;k<n;k++){const p=t.slice(0,i).concat(t.slice(i,k+1).reverse(),t.slice(k+1)),l=len(p);if(l<best-1e-6){t=p;best=l;imp=true}}
+    for(let i=1;i<n;i++)for(let j=1;j<n;j++){if(i===j)continue;const p=t.slice(),[x]=p.splice(i,1);p.splice(j,0,x);const l=len(p);if(l<best-1e-6){t=p;best=l;imp=true}}}
+  return t;
+}
+$('#opt').onclick=async()=>{
+  const{on}=seq();if(on.length<2){msg('Servono almeno 2 clienti localizzati.');return}
+  $('#opt').disabled=true;msg('Ottimizzo…');
+  const nodes=S.depot?[S.depot,...on]:on;let D;
+  try{const j=await(await fetch(`${OSRM}/table/v1/driving/${cs(nodes)}?annotations=duration`)).json();if(j.code!=='Ok')throw 0;D=j.durations.map(r=>r.map(v=>v??1e9));msg(S.depot?'':'Senza partenza: il giro parte dal primo della lista.')}
+  catch(e){D=nodes.map(a=>nodes.map(b=>hav(a,b)));msg('Server strade non raggiungibile: ottimizzato in linea d\'aria.')}
+  const ord=tsp(D,S.round).map(i=>nodes[i]).filter(n=>n!==S.depot);
+  S.stops=[...ord,...S.stops.filter(s=>!ord.includes(s))];
+  await route();save();render(true);$('#opt').disabled=false;
+};
+let rt=null;
+function changed(fit){save();render(fit);clearTimeout(rt);rt=setTimeout(async()=>{if(S.route?.key!==key()){await route();save();render()}},500)}
+window.addEventListener('resize',()=>map.invalidateSize());
+
+/* ---------- vista ---------- */
+const hm=s=>{s=Math.round(s/60);return Math.floor(s/60)+'h'+String(s%60).padStart(2,'0')};
+const clock=(base,sec)=>{const[h,m]=base.split(':').map(Number),t=(h*60+m+Math.round(sec/60))%1440;return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')};
+const icon=(t,c)=>L.divIcon({className:'',html:`<div class="pin ${c||''}">${t}</div>`,iconSize:[26,26],iconAnchor:[13,13]});
+function gLinks(pts){const f=p=>p.lat.toFixed(6)+','+p.lon.toFixed(6),out=[];
+  for(let i=0;i<pts.length-1;i+=9){const p=pts.slice(i,i+10);
+    out.push('https://www.google.com/maps/dir/?api=1&travelmode=driving&origin='+f(p[0])+'&destination='+f(p[p.length-1])+(p.length>2?'&waypoints='+encodeURIComponent(p.slice(1,-1).map(f).join('|')):''))}
+  return out}
+let dragId=null;
+function render(fit){
+  const{on,pts}=seq(),ok=S.route&&S.route.key===key(),eta={};let n=0;
+  if(ok){let t=0;const off=S.depot?1:0;if(!S.depot&&on[0])eta[on[0].id]={t:0,d:0};
+    S.route.legs.forEach((l,i)=>{t+=l.t;const p=pts[i+1];if(p&&p!==S.depot&&!(S.round&&i===S.route.legs.length-1)){eta[p.id]={t,d:l.d};t+=S.svc*60}});}
+  const L_=$('#list');L_.innerHTML='';
+  const G=S.stops.filter(x=>x.on),reorder=g=>{S.stops=[...g,...S.stops.filter(x=>!x.on)];changed()};
+  G.forEach((s,idx)=>{const inc=s.lat!=null,li=document.createElement('li');li.draggable=true;if(!inc)li.classList.add('off');
+    const e=eta[s.id],st={ok:['●','trovato'],approx:['●','solo comune'],ko:['✕','non trovato'],man:['●','piazzato a mano']}[s.st]||['○','da localizzare'];
+    li.innerHTML=`<span class="num">${inc?++n:'–'}</span>
+      <div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr||'—')}${s.note?' · '+esc(s.note):''}</small>${e?`<small class="eta">arrivo ${clock(S.start,e.t)}${e.d?' · '+(e.d/1000).toFixed(1)+' km':''}</small>`:''}</div>
+      <span class="st ${s.st||''}" title="${st[1]}">${st[0]}</span>
+      <button class="mini noprint" data-a="up">↑</button><button class="mini noprint" data-a="dn">↓</button>${s.lat==null?'<button class="mini noprint" data-a="pin" title="piazza sulla mappa">📍</button>':''}<button class="mini noprint" data-a="del" title="togli dal giro">✕</button>`;
+    li.querySelectorAll('button').forEach(b=>b.onclick=()=>{const a=b.dataset.a,g=G.slice();
+      if(a==='pin')return setMode({type:'place',id:s.id},'Clicca sulla mappa dove si trova: '+s.nome);
+      if(a==='del'){s.on=false;return changed()}
+      if(a==='up'&&idx>0)[g[idx-1],g[idx]]=[g[idx],g[idx-1]];
+      if(a==='dn'&&idx<g.length-1)[g[idx+1],g[idx]]=[g[idx],g[idx+1]];
+      reorder(g)});
+    li.ondragstart=()=>{dragId=s.id;li.classList.add('drag')};li.ondragend=()=>li.classList.remove('drag');
+    li.ondragover=ev=>ev.preventDefault();
+    li.ondrop=ev=>{ev.preventDefault();const g=G.slice(),from=g.findIndex(x=>x.id===dragId);if(from<0||from===idx)return;const[x]=g.splice(from,1);g.splice(idx,0,x);reorder(g)};
+    L_.appendChild(li);});
+  layer.clearLayers();if(line){line.remove();line=null}
+  if(S.depot)L.marker([S.depot.lat,S.depot.lon],{icon:icon('P','dep'),draggable:true}).bindPopup('<b>Partenza</b><br>'+esc(S.depot.addr))
+    .on('dragend',e=>{const p=e.target.getLatLng();S.depot.lat=p.lat;S.depot.lon=p.lng;changed()}).addTo(layer);
+  S.stops.forEach(s=>{if(s.on||s.lat==null)return;
+    L.circleMarker([s.lat,s.lon],{radius:6,color:'#fff',weight:1.5,fillColor:'#8b949e',fillOpacity:.9})
+      .bindTooltip(esc(s.nome)+' — clic per aggiungere').on('click',()=>{addToGiro(s,true);msg(`✓ ${s.nome} aggiunto al giro`)}).addTo(layer)});
+  n=0;G.forEach(s=>{if(s.lat==null)return;
+    L.marker([s.lat,s.lon],{icon:icon(++n,s.st==='approx'?'ap':''),draggable:true})
+      .bindPopup(`<b>${esc(s.nome)}</b><br>${esc(s.addr)}${s.note?'<br>'+esc(s.note):''}<br><small>trascina il segnaposto per correggere</small>`)
+      .on('dragend',e=>{const p=e.target.getLatLng();s.lat=p.lat;s.lon=p.lng;s.st='man';cacheSet(s.addr,{lat:p.lat,lon:p.lng});changed()}).addTo(layer)});
+  if(ok&&S.route.geo.length)line=L.polyline(S.route.geo,{color:getComputedStyle(document.documentElement).getPropertyValue('--ac'),weight:5,opacity:.75,dashArray:S.route.approx?'6 8':null}).addTo(map);
+  if(fit){map.invalidateSize();const src=G.some(s=>s.lat!=null)?G:S.stops;
+    const b=[...(S.depot?[[S.depot.lat,S.depot.lon]]:[]),...src.filter(s=>s.lat!=null).map(s=>[s.lat,s.lon])];if(b.length)map.fitBounds(b,{padding:[40,40],maxZoom:15})}
+  const tot=S.stops.length,loc=S.stops.filter(s=>s.lat!=null).length;
+  if(!tot)$('#stats').textContent='Nessun cliente. Carica un XML o aggiungi tappe con ＋.';
+  else if(!G.length)$('#stats').innerHTML=`Rubrica: <b>${tot}</b> clienti (${loc} sulla mappa). Giro vuoto: cerca sopra o clicca i puntini grigi.`;
+  else if(ok){const d=S.route.legs.reduce((a,l)=>a+l.d,0),t=S.route.legs.reduce((a,l)=>a+l.t,0),all=t+on.length*S.svc*60;
+    $('#stats').innerHTML=`<b>${on.length}</b> tappe · <b>${(d/1000).toFixed(1)} km</b> · guida <b>${hm(t)}</b> · fine giro ~<b>${clock(S.start,all)}</b>${S.route.approx?' (stima in linea d\'aria)':''}${loc<tot?` · ${tot-loc} da localizzare`:''}`;}
+  else $('#stats').innerHTML=`<b>${tot}</b> clienti · ${loc} localizzati${on.length>1?' · calcolo percorso…':''}`;
+  $('#links').innerHTML=ok&&pts.length>1?gLinks(pts).map((u,i,a)=>`<a href="${u}" target="_blank" rel="noopener">▶ Apri in Google Maps${a.length>1?` (tratta ${i+1}/${a.length})`:''}</a>`).join(''):'';
+}
+$('#round').onchange=e=>{S.round=e.target.checked;changed()};
+$('#start').onchange=e=>{S.start=e.target.value||'08:30';changed()};
+$('#svc').onchange=e=>{S.svc=Math.max(0,+e.target.value||0);changed()};
+$('#print').onclick=()=>window.print();
+$('#clear').onclick=()=>{if(confirm('Cancellare TUTTA la rubrica caricata?')){S.stops=[];S.route=null;changed()}};
+$('#csv').onclick=()=>{const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';let n=0;
+  const rows=[['n','nome','indirizzo','note','lat','lon'],...S.stops.filter(s=>s.on).map(s=>[s.lat!=null?++n:'',s.nome,s.addr,s.note,s.lat,s.lon])];
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n')],{type:'text/csv'}));a.download='giro.csv';a.click()};
+$('#round').checked=S.round;$('#start').value=S.start;$('#svc').value=S.svc;if(S.depot)$('#depot').value=S.depot.addr||'';
+window.importText=importText;
+render(true);
+</script>
+</body>
+</html>
