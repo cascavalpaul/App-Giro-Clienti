@@ -113,7 +113,6 @@ nav .badge:empty{display:none}
 #map{position:absolute;inset:0;background:#0c0718}
 #hint{position:fixed;z-index:2000;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);
   background:linear-gradient(90deg,var(--ac),var(--ac2));color:#fff;padding:10px 16px;border-radius:12px;font-weight:600;box-shadow:0 0 20px rgba(255,63,216,.5);display:none}
-.dark-tiles{filter:invert(1) hue-rotate(215deg) brightness(.85) contrast(.95) saturate(.55)}
 .pin{width:30px!important;height:30px!important;border-radius:50%;display:grid;place-items:center;font:800 12px Orbitron,sans-serif;color:#fff;border:2px solid #fff;
   background:linear-gradient(135deg,var(--ac),var(--ac2));box-shadow:0 0 12px rgba(255,63,216,.8)}
 .pin.dep{background:var(--yel);color:#0c0718;border-radius:9px;box-shadow:0 0 14px rgba(255,216,74,.9)}
@@ -220,7 +219,7 @@ const narrow=()=>matchMedia('(max-width:899px)').matches;
 
 /* ---------- mappa ---------- */
 const map=L.map('map',{zoomControl:true}).setView([42.5,12.5],6);
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap',className:'dark-tiles'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
 const layer=L.layerGroup().addTo(map);let line=null,mode=null;
 function setMode(m,t){mode=m;$('#hint').style.display=m?'block':'none';$('#hint').textContent=t||'';if(m&&narrow())tab('map')}
 map.on('click',async e=>{
@@ -406,14 +405,14 @@ function render(fit){
   if(S.depot)L.marker([S.depot.lat,S.depot.lon],{icon:icon('P','dep'),draggable:true,zIndexOffset:1000}).bindPopup('<b>Partenza</b><br>'+esc(S.depot.addr))
     .on('dragend',e=>{const p=e.target.getLatLng();S.depot.lat=p.lat;S.depot.lon=p.lng;changed()}).addTo(layer);
   S.stops.forEach(s=>{if(s.on||s.lat==null)return;
-    L.circleMarker([s.lat,s.lon],{radius:7,color:'#cbb8ff',weight:1.5,fillColor:'#4a3a78',fillOpacity:.95})
+    L.circleMarker([s.lat,s.lon],{radius:7,color:'#fff',weight:2,fillColor:'#7a6a99',fillOpacity:.95})
       .bindTooltip(esc(s.nome)+' — tocca per aggiungere').on('click',()=>{addToGiro(s,true);msg(`✓ ${s.nome} aggiunto al giro`)}).addTo(layer)});
   n=0;G.forEach(s=>{if(s.lat==null)return;
     L.marker([s.lat,s.lon],{icon:icon(++n,s.st==='approx'?'ap':''),draggable:true})
       .bindPopup(`<b>${esc(s.nome)}</b><br>${esc(s.addr)}${s.note?'<br>'+esc(s.note):''}<br><small>trascina il segnaposto per correggere</small>`)
       .on('dragend',e=>{const p=e.target.getLatLng();s.lat=p.lat;s.lon=p.lng;s.st='man';cacheSet(s.addr,{lat:p.lat,lon:p.lng});changed()}).addTo(layer)});
   if(ok&&S.route.geo.length){const dash=S.route.approx?'6 8':null;
-    line=L.layerGroup([L.polyline(S.route.geo,{color:'#ff3fd8',weight:12,opacity:.18,dashArray:dash}),L.polyline(S.route.geo,{color:'#d27bff',weight:4.5,opacity:.95,dashArray:dash})]).addTo(map)}
+    line=L.layerGroup([L.polyline(S.route.geo,{color:'#ff3fd8',weight:11,opacity:.25,dashArray:dash}),L.polyline(S.route.geo,{color:'#8a2be2',weight:5,opacity:.95,dashArray:dash})]).addTo(map)}
   if(fit){map.invalidateSize();fitNow()}
   const tot=S.stops.length,loc=S.stops.filter(s=>s.lat!=null).length;
   $('#bookInfo').innerHTML=geoBusy?esc(geoMsg):tot?`Rubrica: <b>${tot}</b> clienti · ${loc} sulla mappa${S.depot?' · partenza: '+esc(S.depot.addr):' · <span style="color:var(--wa)">partenza non impostata</span>'}${geoMsg?'<br>'+esc(geoMsg):''}`:'Nessun cliente caricato.';
