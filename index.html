@@ -57,6 +57,10 @@ button:disabled{opacity:.45;cursor:default}
 #drop{border:1.5px dashed var(--bd2);border-radius:12px;padding:16px;text-align:center;color:var(--mu);cursor:pointer}
 #drop b{color:var(--tx)}
 #drop.over{border-color:var(--ac);background:rgba(177,77,255,.1)}
+#topAcc{margin-top:10px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:12.5px;color:var(--mu)}
+#topAcc[hidden]{display:none}
+#topUser{max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#topOut{padding:5px 12px;border-radius:999px;font:700 10px Orbitron,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#fff;border:1px solid var(--ac2);background:rgba(255,63,216,.12)}
 #login{position:fixed;inset:0;z-index:4000;overflow:auto;display:flex;align-items:center;justify-content:center;padding:24px 16px;
   background:radial-gradient(120% 60% at 50% 0%,#2a1256 0%,var(--bg) 60%),var(--bg)}
 #login[hidden]{display:none}
@@ -201,6 +205,7 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
   <header class="top">
     <div class="logo"><span>GIRO</span><span>CLIENTI</span></div>
     <div class="sub" id="today">Pianificazione giro</div>
+    <div id="topAcc" hidden><span id="topUser"></span><button id="topOut" type="button">Esci</button></div>
   </header>
   <main>
     <section data-p="giro">
@@ -326,6 +331,7 @@ window.cloudUser=async(u,cloudEmpty)=>{
 function renderAccount(){
   $('#accCard').hidden=!window.FIREBASE_CONFIG;if(!window.FIREBASE_CONFIG)return;
   const u=CLOUD.user;$('#accIn').hidden=!!u;$('#accOut').hidden=!u;
+  $('#topAcc').hidden=!u;if(u)$('#topUser').textContent='👤 '+(u.email||u.displayName||'utente');
   $('#accInfo').innerHTML=!u?'Non sei collegato: i clienti sono salvati <b>solo su questo dispositivo</b>.'
     :`Collegato come <b>${esc(u.email||u.displayName||'utente')}</b><br>`+(CLOUD.err?`<span style="color:var(--wa)">${esc(CLOUD.err)}</span>`
     :CLOUD.dirty||CLOUD.t?'⏳ Salvataggio online…':!CLOUD.ready?'⏳ Carico i tuoi clienti…':'<span style="color:var(--ok)">✓ Clienti salvati online</span>');
@@ -345,6 +351,7 @@ $('#lReset').onclick=()=>{const m=$('#l_email').value.trim();if(!m){$('#lErr').c
   authDo(()=>window.FB.reset(m),'Ti ho mandato un\'email per scegliere una password nuova.')};
 $('#lLocal').onclick=()=>{try{localStorage.setItem('giro-local','1')}catch(e){};$('#login').hidden=true;renderAccount()};
 $('#accIn').onclick=()=>{$('#login').hidden=false};
+$('#topOut').onclick=()=>$('#accOut').onclick();
 $('#accOut').onclick=()=>{if(confirm('Uscire dall\'account? I clienti restano salvati online e li ritrovi quando rientri.'))window.FB&&window.FB.logout()};
 const msg=t=>$('#msg').textContent=t||'';
 $('#today').textContent=new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
