@@ -57,6 +57,20 @@ button:disabled{opacity:.45;cursor:default}
 #drop{border:1.5px dashed var(--bd2);border-radius:12px;padding:16px;text-align:center;color:var(--mu);cursor:pointer}
 #drop b{color:var(--tx)}
 #drop.over{border-color:var(--ac);background:rgba(177,77,255,.1)}
+#login{position:fixed;inset:0;z-index:4000;overflow:auto;display:flex;align-items:center;justify-content:center;padding:24px 16px;
+  background:radial-gradient(120% 60% at 50% 0%,#2a1256 0%,var(--bg) 60%),var(--bg)}
+#login[hidden]{display:none}
+.lbox{width:100%;max-width:380px;display:flex;flex-direction:column;gap:14px;text-align:center}
+.lbox .sub{letter-spacing:.12em;line-height:1.6}
+.lbox form{text-align:left;display:flex;flex-direction:column;gap:8px}
+.lbox label{margin:4px 0 0}
+input[type=email],input[type=password]{width:100%;padding:12px;border:1px solid var(--bd2);border-radius:10px;background:#0f0822;outline:none;font-size:16px}
+#lErr{font-size:13px;color:var(--wa)}#lErr:empty{display:none}#lErr.ok{color:var(--ok)}
+.lrow{display:flex;justify-content:space-between;gap:8px;margin-top:4px}
+.link{background:none;border:0;padding:6px 0;color:#cbb8ff;text-decoration:underline;font-size:13px}
+.link:hover{background:none;color:#fff}
+.gbtn{background:#fff;color:#1f1f1f;border:0;font-weight:600}.gbtn:hover{background:#eee}
+#accInfo{font-size:14px}#accInfo b{color:var(--yel);font-weight:600}
 #cfWrap{position:fixed;inset:0;z-index:3000;background:rgba(6,3,14,.72);backdrop-filter:blur(4px);display:flex;align-items:flex-end;justify-content:center;padding:16px}
 #cfWrap[hidden]{display:none}
 #cf{width:100%;max-width:460px;max-height:100%;overflow:auto;margin-bottom:env(safe-area-inset-bottom,0px);box-shadow:0 0 40px rgba(255,63,216,.35)}
@@ -153,6 +167,21 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
 </head>
 <body data-tab="giro">
 <div id="hint"></div>
+<div id="login" hidden>
+  <div class="lbox">
+    <div><div class="logo"><span>GIRO</span><span>CLIENTI</span></div></div>
+    <div class="sub">Accedi per ritrovare i tuoi clienti<br>su ogni telefono e PC</div>
+    <form id="lf" class="card">
+      <label for="l_email">Email</label><input type="email" id="l_email" autocomplete="email" inputmode="email">
+      <label for="l_pw">Password</label><input type="password" id="l_pw" autocomplete="current-password">
+      <div id="lErr"></div>
+      <button class="pri wide" type="submit">Accedi</button>
+      <button type="button" id="lNew" class="wide">Crea un account nuovo</button>
+      <button type="button" id="lGoogle" class="wide gbtn">Accedi con Google</button>
+      <div class="lrow"><button type="button" id="lReset" class="link">Password dimenticata?</button><button type="button" id="lLocal" class="link">Usa senza account</button></div>
+    </form>
+  </div>
+</div>
 <div id="cfWrap" hidden>
   <form id="cf" class="card" autocomplete="off">
     <h2><span class="dot"></span><span id="cfTitle">Nuovo cliente</span></h2>
@@ -194,6 +223,11 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
     </section>
 
     <section data-p="set">
+      <div class="card" id="accCard" hidden>
+        <h2><span class="dot"></span>Account</h2>
+        <div id="accInfo"></div>
+        <div class="tools" style="margin-top:10px"><button id="accIn">Accedi / crea account</button><button id="accOut">Esci</button></div>
+      </div>
       <div class="card">
         <h2><span class="dot"></span>Rubrica clienti</h2>
         <div id="drop"><b>Carica la lista clienti</b><br>Excel, CSV o XML · tocca qui o trascina il file<input type="file" id="file" accept=".xlsx,.xls,.ods,.csv,.txt,.xml" hidden></div>
@@ -237,7 +271,74 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const OSRM='https://router.project-osrm.org';
 let S={stops:[],depot:null,round:true,start:'08:30',svc:20,route:null};
 try{const s=JSON.parse(localStorage.getItem('giro'));if(s)Object.assign(S,s)}catch(e){}
-const save=()=>{try{localStorage.setItem('giro',JSON.stringify(S))}catch(e){}};
+const save=()=>{try{localStorage.setItem('giro',JSON.stringify(S))}catch(e){};schedulePush()};
+
+/* ---------- account e salvataggio online (Firebase) ---------- */
+// Configurazione del progetto Firebase: null = app solo locale, senza account.
+window.FIREBASE_CONFIG=null;
+const CLOUD={user:null,ready:false,synced:{},docs:new Map(),settings:null,gotDocs:false,dirty:0,t:null,need:false,err:''};
+const localMode=()=>{try{return localStorage.getItem('giro-local')==='1'}catch(e){return false}};
+function docOf(s){return{nome:s.nome||'',addr:s.addr||'',alt:s.alt||'',note:s.note||'',txt:s.txt||'',
+  f:s.f?Object.fromEntries(FK.map(k=>[k,s.f[k]||''])):null,lat:s.lat??null,lon:s.lon??null,st:s.st||null}}
+function settingsOf(){return{depot:S.depot?{nome:S.depot.nome||'Partenza',addr:S.depot.addr||'',lat:S.depot.lat,lon:S.depot.lon}:null,
+  round:!!S.round,start:S.start,svc:S.svc,giro:S.stops.filter(s=>s.on).map(s=>s.id)}}
+function schedulePush(){if(!CLOUD.user||!CLOUD.ready)return;clearTimeout(CLOUD.t);CLOUD.t=setTimeout(push,700);renderAccount()}
+async function push(){
+  CLOUD.t=null;if(!CLOUD.user||!CLOUD.ready){if(CLOUD.need&&!CLOUD.dirty){CLOUD.need=false;maybeRebuild()}return}const ops=[],seen=new Set();
+  for(const s of S.stops){seen.add(s.id);const d=docOf(s),j=JSON.stringify(d);if(CLOUD.synced[s.id]!==j){ops.push(['set',s.id,d]);CLOUD.synced[s.id]=j}}
+  for(const id of Object.keys(CLOUD.synced))if(id!=='__s'&&!seen.has(id)){ops.push(['del',id]);delete CLOUD.synced[id]}
+  const st=settingsOf(),sj=JSON.stringify(st);if(CLOUD.synced.__s!==sj){ops.push(['set','__s',st]);CLOUD.synced.__s=sj}
+  if(ops.length){CLOUD.dirty++;renderAccount();
+    try{await window.FB.write(CLOUD.user.uid,ops);CLOUD.err=''}
+    catch(e){CLOUD.err='Salvataggio online non riuscito ('+(e.code||e.message)+'). Riprovo alla prossima modifica.';CLOUD.synced={}}
+    CLOUD.dirty--;}
+  renderAccount();if(!CLOUD.dirty&&!CLOUD.t&&CLOUD.need){CLOUD.need=false;rebuild()}
+}
+function maybeRebuild(){if(!CLOUD.gotDocs)return;if(CLOUD.dirty||CLOUD.t){CLOUD.need=true;return}rebuild()}
+function rebuild(){
+  const st=CLOUD.settings||{},giro=(st.giro||[]).filter(id=>CLOUD.docs.has(id)),m=CLOUD.docs;
+  S.stops=[...giro.map(id=>({id,...m.get(id),on:true})),...[...m.keys()].filter(id=>!giro.includes(id)).map(id=>({id,...m.get(id),on:false}))];
+  if(CLOUD.settings){S.depot=st.depot||null;S.round=st.round??S.round;S.start=st.start||S.start;S.svc=st.svc??S.svc}
+  CLOUD.synced={};S.stops.forEach(s=>CLOUD.synced[s.id]=JSON.stringify(docOf(s)));CLOUD.synced.__s=JSON.stringify(settingsOf());
+  CLOUD.ready=true;applyInputs();changed(true);
+}
+window.cloudDocs=(docs,pending)=>{CLOUD.docs=new Map(docs);CLOUD.gotDocs=true;if(!pending)maybeRebuild()};
+window.cloudSettings=(data,pending)=>{CLOUD.settings=data;if(!pending)maybeRebuild()};
+window.cloudUser=async(u,cloudEmpty)=>{
+  if(!u){
+    clearTimeout(CLOUD.t);CLOUD.t=null;
+    if(CLOUD.user){S.stops=[];S.depot=null;S.route=null;try{localStorage.removeItem('giro')}catch(e){};applyInputs();render(true)}
+    Object.assign(CLOUD,{user:null,ready:false,synced:{},docs:new Map(),settings:null,gotDocs:false,need:false});
+    $('#login').hidden=localMode();renderAccount();return;
+  }
+  CLOUD.user=u;$('#login').hidden=true;
+  try{localStorage.removeItem('giro-local')}catch(e){}
+  if(cloudEmpty&&S.stops.length){CLOUD.ready=true;CLOUD.synced={};await push();msg('✓ I clienti di questo telefono sono stati salvati nel tuo account.')}
+  renderAccount();
+};
+function renderAccount(){
+  $('#accCard').hidden=!window.FIREBASE_CONFIG;if(!window.FIREBASE_CONFIG)return;
+  const u=CLOUD.user;$('#accIn').hidden=!!u;$('#accOut').hidden=!u;
+  $('#accInfo').innerHTML=!u?'Non sei collegato: i clienti sono salvati <b>solo su questo dispositivo</b>.'
+    :`Collegato come <b>${esc(u.email||u.displayName||'utente')}</b><br>`+(CLOUD.err?`<span style="color:var(--wa)">${esc(CLOUD.err)}</span>`
+    :CLOUD.dirty||CLOUD.t?'⏳ Salvataggio online…':!CLOUD.ready?'⏳ Carico i tuoi clienti…':'<span style="color:var(--ok)">✓ Clienti salvati online</span>');
+}
+const AUTH_ERR={'auth/invalid-credential':'Email o password sbagliate.','auth/wrong-password':'Email o password sbagliate.','auth/user-not-found':'Nessun account con questa email: premi "Crea un account nuovo".',
+  'auth/email-already-in-use':'Esiste già un account con questa email: premi "Accedi".','auth/weak-password':'La password deve avere almeno 6 caratteri.',
+  'auth/invalid-email':'Controlla l\'email: non è scritta bene.','auth/missing-password':'Scrivi la password.','auth/network-request-failed':'Nessuna connessione a internet.',
+  'auth/too-many-requests':'Troppi tentativi: aspetta qualche minuto e riprova.','auth/popup-closed-by-user':'Accesso con Google annullato.','auth/unauthorized-domain':'Accesso con Google non ancora abilitato per questo sito.'};
+async function authDo(fn,okText){const el=$('#lErr');el.className='';el.textContent='';
+  if(!window.FB){el.textContent='Servizio account non raggiungibile: controlla la connessione.';return}
+  try{await fn();if(okText){el.className='ok';el.textContent=okText}}catch(e){el.textContent=AUTH_ERR[e.code]||('Errore: '+(e.code||e.message))}}
+const cred=()=>[$('#l_email').value.trim(),$('#l_pw').value];
+$('#lf').onsubmit=e=>{e.preventDefault();authDo(()=>window.FB.login(...cred()))};
+$('#lNew').onclick=()=>authDo(()=>window.FB.signup(...cred()));
+$('#lGoogle').onclick=()=>authDo(()=>window.FB.google());
+$('#lReset').onclick=()=>{const m=$('#l_email').value.trim();if(!m){$('#lErr').className='';$('#lErr').textContent='Scrivi prima la tua email qui sopra.';return}
+  authDo(()=>window.FB.reset(m),'Ti ho mandato un\'email per scegliere una password nuova.')};
+$('#lLocal').onclick=()=>{try{localStorage.setItem('giro-local','1')}catch(e){};$('#login').hidden=true;renderAccount()};
+$('#accIn').onclick=()=>{$('#login').hidden=false};
+$('#accOut').onclick=()=>{if(confirm('Uscire dall\'account? I clienti restano salvati online e li ritrovi quando rientri.'))window.FB&&window.FB.logout()};
 const msg=t=>$('#msg').textContent=t||'';
 $('#today').textContent=new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
 
@@ -364,7 +465,7 @@ $('#cf').onsubmit=e=>{
   e.preventDefault();const f={};FK.forEach(k=>f[k]=$('#f_'+k).value.trim());f.prov=f.prov.toUpperCase();
   if(!f.nome){$('#cfErr').textContent='Scrivi il nome del cliente.';return}
   if(!f.via&&!f.citta){$('#cfErr').textContent='Scrivi almeno indirizzo e comune, servono per trovarlo sulla mappa.';return}
-  const old=editing,oldAddr=old&&old.addr,c=mkClient(f,old||undefined);c.txt=Object.values(f).join(' ');
+  const old=editing&&S.stops.find(x=>x.id===editing.id),oldAddr=old&&old.addr,c=mkClient(f,old||undefined);c.txt=Object.values(f).join(' ');
   if(!old)S.stops.push(c);
   if(!old||c.addr!==oldAddr){c.lat=null;c.lon=null;c.st=null}
   closeForm();addToGiro(c,$('#f_on').checked);
@@ -372,7 +473,7 @@ $('#cf').onsubmit=e=>{
   if(c.lat==null)geocodeAll().then(()=>{if(c.st==='ko')msg(`Indirizzo di ${c.nome} non trovato: aprilo con ✎ e usa "Posiziona sulla mappa".`);else if(c.st==='approx')msg(`${c.nome}: trovato solo il comune. Trascina il segnaposto arancione nel punto giusto.`)});
 };
 $('#cfDel').onclick=()=>{const b=$('#cfDel');if(!b.dataset.sure){b.dataset.sure='1';b.textContent='Tocca ancora per eliminare';return}
-  const s=editing;S.stops.splice(S.stops.indexOf(s),1);closeForm();msg(`${s.nome} eliminato dalla rubrica`);changed()};
+  const s=editing;S.stops=S.stops.filter(x=>x.id!==s.id);closeForm();msg(`${s.nome} eliminato dalla rubrica`);changed()};
 $('#cfPin').onclick=()=>{const s=editing;closeForm();setMode({type:'place',id:s.id},'Tocca sulla mappa dove si trova: '+s.nome)};
 document.querySelectorAll('.newc').forEach(b=>b.onclick=()=>openForm(null));
 $('#exp').onclick=async()=>{
@@ -425,7 +526,7 @@ $('#geo').onclick=geocodeAll;
 /* ---------- ricerca in rubrica ---------- */
 const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
 let hits=[],sel=0;
-function addToGiro(s,on=!s.on){s.on=on;if(on){S.stops.splice(S.stops.indexOf(s),1);const k=S.stops.filter(x=>x.on).length;S.stops.splice(k,0,s)}changed()}
+function addToGiro(s,on=!s.on){s=S.stops.find(x=>x.id===s.id);if(!s)return;s.on=on;if(on){S.stops.splice(S.stops.indexOf(s),1);const k=S.stops.filter(x=>x.on).length;S.stops.splice(k,0,s)}changed()}
 function search(){
   const q=norm($('#q').value).split(/\s+/).filter(Boolean);
   if(!q.length){hits=[];$('#res').innerHTML='';return}
@@ -558,10 +659,41 @@ $('#clear').onclick=()=>{if(confirm('Cancellare TUTTA la rubrica caricata?')){S.
 $('#csv').onclick=()=>{const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';let n=0;
   const rows=[['n','nome','indirizzo','note','lat','lon'],...S.stops.filter(s=>s.on).map(s=>[s.lat!=null?++n:'',s.nome,s.addr,s.note,s.lat,s.lon])];
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n')],{type:'text/csv'}));a.download='giro.csv';a.click()};
-$('#round').checked=S.round;$('#start').value=S.start;$('#svc').value=S.svc;if(S.depot)$('#depot').value=S.depot.addr||'';
+function applyInputs(){$('#round').checked=S.round;$('#start').value=S.start;$('#svc').value=S.svc;$('#depot').value=S.depot?S.depot.addr||'':''}
+applyInputs();renderAccount();
 window.loadFile=loadFile;
 if(!S.stops.length)tab('set');
 render(true);
+</script>
+<script type="module">
+// Account e database: si attiva solo se FIREBASE_CONFIG e' impostata.
+const cfg=window.FIREBASE_CONFIG;
+if(cfg){
+  const V='https://www.gstatic.com/firebasejs/10.12.2/';
+  const [{initializeApp},A,F]=await Promise.all([import(V+'firebase-app.js'),import(V+'firebase-auth.js'),import(V+'firebase-firestore.js')]);
+  const app=initializeApp(cfg),auth=A.getAuth(app);
+  const db=F.initializeFirestore(app,{localCache:F.persistentLocalCache({tabManager:F.persistentMultipleTabManager()})});
+  const ref=(uid,id)=>id==='__s'?F.doc(db,'utenti',uid,'dati','impostazioni'):F.doc(db,'utenti',uid,'clienti',id);
+  window.FB={
+    login:(e,p)=>A.signInWithEmailAndPassword(auth,e,p),
+    signup:(e,p)=>A.createUserWithEmailAndPassword(auth,e,p),
+    google:()=>A.signInWithPopup(auth,new A.GoogleAuthProvider()),
+    reset:e=>A.sendPasswordResetEmail(auth,e),
+    logout:()=>A.signOut(auth),
+    async write(uid,ops){for(let i=0;i<ops.length;i+=400){const b=F.writeBatch(db);
+      ops.slice(i,i+400).forEach(([t,id,d])=>t==='set'?b.set(ref(uid,id),d):b.delete(ref(uid,id)));await b.commit()}}
+  };
+  let unsub=[];
+  A.onAuthStateChanged(auth,async u=>{
+    unsub.forEach(f=>f());unsub=[];
+    if(!u){await window.cloudUser(null);return}
+    const col=F.collection(db,'utenti',u.uid,'clienti');
+    const first=await F.getDocs(col).catch(()=>null);
+    await window.cloudUser(u,first?first.empty:false);
+    unsub.push(F.onSnapshot(col,s=>window.cloudDocs(s.docs.map(d=>[d.id,d.data()]),s.metadata.hasPendingWrites)));
+    unsub.push(F.onSnapshot(ref(u.uid,'__s'),s=>window.cloudSettings(s.exists()?s.data():null,s.metadata.hasPendingWrites)));
+  });
+}
 </script>
 </body>
 </html>
