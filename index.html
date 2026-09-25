@@ -57,6 +57,8 @@ button:disabled{opacity:.45;cursor:default}
 #drop{border:1.5px dashed var(--bd2);border-radius:12px;padding:16px;text-align:center;color:var(--mu);cursor:pointer}
 #drop b{color:var(--tx)}
 #drop.over{border-color:var(--ac);background:rgba(177,77,255,.1)}
+.help{font-size:12.5px;color:var(--mu);margin:10px 0}.help b{color:#d9ccff;font-weight:600}
+.wide{width:100%}
 #mapping .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 #bookInfo{font-size:13px;color:var(--mu);margin-top:10px}#bookInfo b{color:var(--tx)}
 
@@ -168,9 +170,11 @@ body:not([data-tab=set]) section[data-p=set],body[data-tab=set] section[data-p=g
     <section data-p="set">
       <div class="card">
         <h2><span class="dot"></span>Rubrica clienti</h2>
-        <div id="drop"><b>Carica l'XML del gestionale</b><br>tocca qui o trascina il file<input type="file" id="file" accept=".xml,text/xml" hidden></div>
+        <div id="drop"><b>Carica la lista clienti</b><br>Excel, CSV o XML · tocca qui o trascina il file<input type="file" id="file" accept=".xlsx,.xls,.ods,.csv,.txt,.xml" hidden></div>
+        <p class="help">Una riga per cliente. Colonne: <b>Nome</b>, <b>Indirizzo</b>, <b>Civico</b>, <b>CAP</b>, <b>Comune</b>, Provincia, Telefono, Note. I nomi delle colonne possono essere diversi: li abbini tu dopo il caricamento.</p>
+        <button id="tpl" class="wide">⬇ Scarica il modello Excel</button>
         <div id="mapping" hidden>
-          <label>Elemento cliente</label><select id="recTag"></select>
+          <label>Foglio / elenco</label><select id="recTag"></select>
           <div class="grid" id="fields"></div>
           <div class="row" style="margin-top:12px;align-items:center"><label style="margin:0;color:var(--tx)"><input type="checkbox" id="replace" checked> sostituisci la rubrica</label><button class="pri" id="doImport">Importa</button></div>
         </div>
@@ -231,8 +235,9 @@ map.on('click',async e=>{
 });
 const uid=()=>Math.random().toString(36).slice(2,9);
 
-/* ---------- XML ---------- */
-let XML=null;
+/* ---------- lettura lista clienti: Excel, CSV, XML ---------- */
+let SRC=null,xl=null;
+function needXLSX(){return xl||(xl=new Promise((ok,ko)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';s.onload=ok;s.onerror=()=>{xl=null;ko(Error('xlsx'))};document.head.appendChild(s)}))}
 function flatten(el){
   const o={};for(const a of el.attributes)o['@'+a.name]=a.value;
   (function walk(n,p){for(const c of n.children){const k=p?p+'/'+c.nodeName:c.nodeName;
@@ -240,42 +245,93 @@ function flatten(el){
     if(c.children.length)walk(c,k);else if(c.textContent.trim())o[k]=c.textContent.trim();}})(el,'');
   return o;
 }
-function importText(text){
+function fromXml(text){
   const doc=new DOMParser().parseFromString(text,'application/xml');
-  if(doc.querySelector('parsererror')){msg('XML non valido.');return}
+  if(doc.querySelector('parsererror'))return[];
   const g={};doc.querySelectorAll('*').forEach(e=>{if(e.children.length||e.attributes.length)(g[e.nodeName]=g[e.nodeName]||[]).push(e)});
-  const c=Object.entries(g).map(([t,els])=>{const keys=new Set();els.slice(0,5).forEach(e=>Object.keys(flatten(e)).forEach(k=>keys.add(k)));return{t,els,keys:[...keys],score:els.length*keys.size}})
-    .filter(x=>x.keys.length>=2).sort((a,b)=>b.score-a.score);
-  if(!c.length){$('#bookInfo').textContent='Nessun elenco di clienti riconosciuto nell\'XML.';return}
-  XML=c;$('#recTag').innerHTML=c.map((x,i)=>`<option value="${i}">${esc(x.t)} (${x.els.length})</option>`).join('');
-  showFields();$('#mapping').hidden=false;tab('set');
+  return Object.entries(g).map(([t,els])=>{const rows=els.map(flatten),keys=new Set();rows.slice(0,20).forEach(r=>Object.keys(r).forEach(k=>keys.add(k)));return{t,rows,keys:[...keys]}});
 }
-const F=[['nome','Nome',/ragione|denomin|nome|name|cliente|descr/i],['via','Via / indirizzo',/indiriz|address|^via$|street|strada/i],['civ','Civico',/civico|numero|^nr|number/i],
- ['cap','CAP',/^cap$|zip|postal|postcode/i],['citta','Città',/citt|city|comune|local|town/i],['prov','Provincia',/prov|county/i],
- ['lat','Latitudine',/^lat|latitud/i],['lon','Longitudine',/^lon|^lng|longitud/i],['note','Note / telefono',/tel|phone|cell|note/i]];
+function fromSheets(sheets){
+  return sheets.map(({name,aoa})=>{
+    aoa=aoa.filter(r=>r.some(v=>String(v??'').trim()));if(aoa.length<2)return null;
+    const cnt=r=>r.filter(v=>String(v??'').trim()).length,top=aoa.slice(0,10),mx=Math.max(...top.map(cnt)),h=top.findIndex(r=>cnt(r)===mx);
+    const head=aoa[h].map((v,i)=>String(v??'').trim()||'Colonna '+(i+1));
+    const rows=aoa.slice(h+1).map(r=>{const o={};head.forEach((k,i)=>{const v=String(r[i]??'').trim();if(v)o[k]=v});return o}).filter(o=>Object.keys(o).length);
+    return{t:name,rows,keys:head};
+  }).filter(Boolean);
+}
+function parseCSV(text){
+  const first=text.split(/\r?\n/)[0],d=[';','\t',','].map(c=>[c,first.split(c).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<text.length;i++){const ch=text[i];
+    if(q){if(ch==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=ch}
+    else if(ch==='"')q=true;else if(ch===d){row.push(f);f=''}else if(ch==='\n'){row.push(f);rows.push(row);row=[];f=''}else if(ch!=='\r')f+=ch}
+  if(f||row.length){row.push(f);rows.push(row)}
+  return rows;
+}
+async function loadFile(f){
+  const ext=f.name.split('.').pop().toLowerCase();let c=[];
+  $('#bookInfo').textContent='Leggo '+f.name+'…';
+  try{
+    if(ext==='xml')c=fromXml(await f.text());
+    else if(ext==='csv'||ext==='txt')c=fromSheets([{name:f.name,aoa:parseCSV((await f.text()).replace(/^﻿/,''))}]);
+    else{await needXLSX();const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+      c=fromSheets(wb.SheetNames.map(n=>({name:n,aoa:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:''})})))}
+  }catch(e){c=[]}
+  showSource(c);
+}
+function showSource(c){
+  c=c.filter(x=>x.keys.length>=2&&x.rows.length).sort((a,b)=>b.rows.length*b.keys.length-a.rows.length*a.keys.length);
+  if(!c.length){$('#bookInfo').innerHTML='<span style="color:var(--wa)">File non letto. Serve una riga per cliente con almeno nome e indirizzo: scarica il modello Excel per vedere il formato.</span>';tab('set');return}
+  SRC=c;$('#recTag').innerHTML=c.map((x,i)=>`<option value="${i}">${esc(x.t)} (${x.rows.length} righe)</option>`).join('');
+  showFields();$('#mapping').hidden=false;$('#bookInfo').textContent='Controlla le colonne e premi Importa.';tab('set');
+}
+const F=[['nome','Nome',[/ragione/,/denomin/,/^(nome|nominativo|name|cliente)/,/nome|cliente/]],
+ ['via','Via / indirizzo',[/^indirizzo$/,/indiriz|address|street|strada/,/^via$/]],
+ ['civ','Civico',[/civico|^n(r|um)?$|numero|number/]],
+ ['cap','CAP',[/^cap$|zip|postal|postcode/]],
+ ['citta','Comune',[/comune|citta|city|localita|town/]],
+ ['prov','Provincia',[/^prov|county/]],
+ ['tel','Telefono',[/tel|cell|phone|mobile/]],
+ ['note','Note',[/note|annot|descr/]],
+ ['lat','Latitudine',[/^lat/]],['lon','Longitudine',[/^lon|^lng/]]];
+const nk=k=>norm(String(k).split(/[\/@]/).pop()).replace(/[^a-z]/g,'');
 function showFields(){
-  const c=XML[+$('#recTag').value],used=new Set();
-  $('#fields').innerHTML=F.map(([k,lab,re])=>{const g=c.keys.find(x=>!used.has(x)&&re.test(x.split(/[\/@]/).pop()));if(g)used.add(g);
+  const c=SRC[+$('#recTag').value],used=new Set();
+  $('#fields').innerHTML=F.map(([k,lab,res])=>{let g;
+    for(const re of res){g=c.keys.find(x=>!used.has(x)&&re.test(nk(x))&&!(k==='nome'&&/cod|^id/.test(nk(x))));if(g)break}
+    if(g)used.add(g);
     return `<div><label>${lab}</label><select data-f="${k}"><option value="">—</option>${c.keys.map(x=>`<option${x===g?' selected':''}>${esc(x)}</option>`).join('')}</select></div>`}).join('');
 }
 $('#recTag').onchange=showFields;
 $('#doImport').onclick=()=>{
-  const c=XML[+$('#recTag').value],m={};document.querySelectorAll('#fields select').forEach(s=>m[s.dataset.f]=s.value);
+  const c=SRC[+$('#recTag').value],m={};document.querySelectorAll('#fields select').forEach(s=>m[s.dataset.f]=s.value);
+  if(!m.nome&&!m.via){$('#bookInfo').innerHTML='<span style="color:var(--wa)">Scegli almeno la colonna del nome o dell\'indirizzo.</span>';return}
   const v=(o,k)=>m[k]?(o[m[k]]||''):'';const num=x=>{const n=parseFloat(String(x).replace(',','.'));return isFinite(n)?n:null};
-  const ns=c.els.map(el=>{const o=flatten(el);const via=[v(o,'via'),v(o,'civ')].filter(Boolean).join(' ');
-    const addr=[via,[v(o,'cap'),v(o,'citta')].filter(Boolean).join(' '),v(o,'prov')].filter(Boolean).join(', ');
-    const alt=[v(o,'cap'),v(o,'citta'),v(o,'prov')].filter(Boolean).join(', ');
-    const lat=num(v(o,'lat')),lon=num(v(o,'lon'));
-    return{id:uid(),nome:v(o,'nome')||via||'(senza nome)',addr,alt,note:v(o,'note'),txt:Object.values(o).join(' '),lat:lat!=null&&lon!=null?lat:null,lon:lat!=null&&lon!=null?lon:null,on:false,st:lat!=null&&lon!=null?'ok':null}});
+  const ns=c.rows.map(o=>{const via=[v(o,'via'),v(o,'civ')].filter(Boolean).join(' ');
+    let cap=v(o,'cap');if(/^\d{1,4}$/.test(cap))cap=cap.padStart(5,'0');
+    const addr=[via,[cap,v(o,'citta')].filter(Boolean).join(' '),v(o,'prov')].filter(Boolean).join(', ');
+    const alt=[cap,v(o,'citta'),v(o,'prov')].filter(Boolean).join(', ');
+    const lat=num(v(o,'lat')),lon=num(v(o,'lon')),has=lat!=null&&lon!=null;
+    return{id:uid(),nome:v(o,'nome')||via||'(senza nome)',addr,alt,note:[v(o,'tel'),v(o,'note')].filter(Boolean).join(' · '),txt:Object.values(o).join(' '),lat:has?lat:null,lon:has?lon:null,on:false,st:has?'ok':null}})
+    .filter(s=>s.nome!=='(senza nome)'||s.addr);
   S.stops=$('#replace').checked?ns:S.stops.concat(ns);S.route=null;$('#mapping').hidden=true;
   changed(true);if(S.stops.some(s=>s.lat==null))geocodeAll();
 };
+$('#tpl').onclick=async()=>{
+  try{await needXLSX()}catch(e){$('#bookInfo').textContent='Non riesco a creare il modello: controlla la connessione.';return}
+  const ws=XLSX.utils.aoa_to_sheet([['Nome','Indirizzo','Civico','CAP','Comune','Provincia','Telefono','Note'],
+    ['Rossi Mario','Via Roma','12','20121','Milano','MI','333 1234567','Cambio gomme invernali'],
+    ['Autofficina Bianchi','Corso Italia','5','20122','Milano','MI','02 7654321','Ritiro pneumatici usati']]);
+  ws['!cols']=[28,26,8,8,18,10,16,30].map(w=>({wch:w}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Clienti');XLSX.writeFile(wb,'modello-clienti.xlsx');
+};
 const drop=$('#drop');
 drop.onclick=()=>$('#file').click();
-$('#file').onchange=e=>{const f=e.target.files[0];if(f)f.text().then(importText);e.target.value=''};
+$('#file').onchange=e=>{const f=e.target.files[0];if(f)loadFile(f);e.target.value=''};
 ['dragover','dragenter'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over')}));
-drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)f.text().then(importText)});
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)loadFile(f)});
 
 /* ---------- geocoding (Nominatim, 1 richiesta/s, con cache) ---------- */
 const cacheGet=q=>{try{return JSON.parse(localStorage.getItem('geo:'+q.toLowerCase()))}catch(e){return null}};
@@ -311,7 +367,7 @@ function search(){
   hits=S.stops.filter(s=>{const t=norm(s.nome+' '+s.addr+' '+s.note+' '+(s.txt||''));return q.every(w=>t.includes(w))}).slice(0,10);
   sel=Math.min(sel,Math.max(0,hits.length-1));
   $('#res').innerHTML=hits.length?hits.map((s,i)=>`<div data-i="${i}" class="${i===sel?'sel':''}"><span class="in ${s.on?'yes':''}">${s.on?'✓':'+'}</span><div class="info"><b>${esc(s.nome)}</b><small>${esc(s.addr)}${s.note?' · '+esc(s.note):''}</small></div></div>`).join('')
-    :`<div class="nf">${S.stops.length?'Nessun cliente trovato.':'Rubrica vuota: carica l\'XML da Imposta.'}</div>`;
+    :`<div class="nf">${S.stops.length?'Nessun cliente trovato.':'Rubrica vuota: carica la lista clienti da Imposta.'}</div>`;
   $('#res').querySelectorAll('[data-i]').forEach(d=>d.onclick=()=>{const s=hits[+d.dataset.i];addToGiro(s);msg(s.on?`✓ ${s.nome} aggiunto al giro`:`${s.nome} tolto dal giro`);$('#q').value='';sel=0;search()});
 }
 $('#q').oninput=()=>{sel=0;search()};
@@ -416,7 +472,7 @@ function render(fit){
   if(fit){map.invalidateSize();fitNow()}
   const tot=S.stops.length,loc=S.stops.filter(s=>s.lat!=null).length;
   $('#bookInfo').innerHTML=geoBusy?esc(geoMsg):tot?`Rubrica: <b>${tot}</b> clienti · ${loc} sulla mappa${S.depot?' · partenza: '+esc(S.depot.addr):' · <span style="color:var(--wa)">partenza non impostata</span>'}${geoMsg?'<br>'+esc(geoMsg):''}`:'Nessun cliente caricato.';
-  if(!tot)$('#stats').innerHTML='<div class="empty">Rubrica vuota. Vai su <b>Imposta</b> e carica l\'XML del gestionale.</div>';
+  if(!tot)$('#stats').innerHTML='<div class="empty">Rubrica vuota. Vai su <b>Imposta</b> e carica la lista clienti (Excel, CSV o XML).</div>';
   else if(!G.length)$('#stats').innerHTML=`<div class="empty">Rubrica di <b>${tot}</b> clienti pronta. Cerca qui sopra e premi Invio per costruire il giro.</div>`;
   else{const d=ok?S.route.legs.reduce((a,l)=>a+l.d,0):0,t=ok?S.route.legs.reduce((a,l)=>a+l.t,0):0,all=t+on.length*S.svc*60;
     const tile=(k,v,u='')=>`<div class="tile"><small>${k}</small><b>${v}${u?`<i>${u}</i>`:''}</b></div>`;
@@ -434,7 +490,7 @@ $('#csv').onclick=()=>{const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';let n
   const rows=[['n','nome','indirizzo','note','lat','lon'],...S.stops.filter(s=>s.on).map(s=>[s.lat!=null?++n:'',s.nome,s.addr,s.note,s.lat,s.lon])];
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+rows.map(r=>r.map(q).join(';')).join('\r\n')],{type:'text/csv'}));a.download='giro.csv';a.click()};
 $('#round').checked=S.round;$('#start').value=S.start;$('#svc').value=S.svc;if(S.depot)$('#depot').value=S.depot.addr||'';
-window.importText=importText;
+window.loadFile=loadFile;
 if(!S.stops.length)tab('set');
 render(true);
 </script>
